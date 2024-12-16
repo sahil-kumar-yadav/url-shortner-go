@@ -15,7 +15,8 @@ export default function Home() {
     setShortenedURL('');
 
     try {
-      const response = await axios.post('http://localhost:3000/shorten', {
+      const response = await axios.post('https://friendly-memory-44vw69q44wq2j7j-3000.app.github.dev/shorten', {
+      // const response = await axios.post('http://localhost:3000/shorten', { 
         url: originalURL,
       });
       setShortenedURL(response.data.shortedURL);

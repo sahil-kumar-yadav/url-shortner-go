@@ -60,15 +60,31 @@ func enableCORS(w http.ResponseWriter) {
 	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 }
 
+func isFrontendRequest(r *http.Request) bool {
+    origin := r.Header.Get("Origin")
+    if origin == "https://friendly-memory-44vw69q44wq2j7j-3001.app.github.dev" {
+        return true
+    }
+    return false
+}
+
 // Handler for shortening URLs
 func shortenURLHandler(w http.ResponseWriter, r *http.Request) {
-	fmt.Fprint(w,"Shorten url endpoint")
-	fmt.Fprintf(w, "URL Shortener API is running!")
+	fmt.Fprint(w, "Shorten url endpoint")
+	fmt.Println("Shortening url function called")
+
+	if !isFrontendRequest(r) {
+        http.Error(w, "Forbidden: Request not allowed", http.StatusForbidden)
+        return
+    }
+
 	if r.Method == http.MethodOptions {
 		enableCORS(w)
+		w.WriteHeader(http.StatusOK) // Respond with a 200 OK
 		return
 	}
 	enableCORS(w)
+	
 
 	if r.Method != http.MethodPost {
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
@@ -104,6 +120,18 @@ func shortenURLHandler(w http.ResponseWriter, r *http.Request) {
 
 // Handler for redirecting short URLs to original URLs
 func redirectURLHandler(w http.ResponseWriter, r *http.Request) {
+
+	// Handle preflight OPTIONS request
+	if r.Method == http.MethodOptions {
+		enableCORS(w)
+		w.WriteHeader(http.StatusOK) // Respond with a 200 OK
+		return
+	}
+
+	// Enable CORS for this handler
+	enableCORS(w)
+
+	// Extract short URL ID
 	shortID := strings.TrimPrefix(r.URL.Path, "/redirect/")
 	url, err := getURL(shortID)
 	if err != nil {
@@ -116,15 +144,29 @@ func redirectURLHandler(w http.ResponseWriter, r *http.Request) {
 
 // Root handler (for testing purposes)
 func rootHandler(w http.ResponseWriter, r *http.Request) {
+	// Handle preflight OPTIONS request
+	if r.Method == http.MethodOptions {
+		enableCORS(w)
+		w.WriteHeader(http.StatusOK) // Respond with a 200 OK
+		return
+	}
+
+	// Enable CORS for this handler
 	enableCORS(w)
-	fmt.Fprintf(w, "URL Shortener API is running!")
+
+	if r.Method == http.MethodOptions {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+	// Regular processing for other methods (like GET)
+	fmt.Println("Root handler called")
 }
 
 // Main function to start the server
 func main() {
 	fmt.Println("Starting URL shortener server...")
 
-	// http.HandleFunc("/", rootHandler)
+	http.HandleFunc("/", rootHandler)
 	http.HandleFunc("/shorten", shortenURLHandler)
 	http.HandleFunc("/redirect/", redirectURLHandler)
 
