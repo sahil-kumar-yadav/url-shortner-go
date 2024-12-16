@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
+	"time"
 )
 
-// url shortner detailed struct
+// URL struct to store original and shortened URLs
 type URL struct {
 	ID           string `json:"id"`
 	OriginalURL  string `json:"original_url"`
@@ -17,108 +19,119 @@ type URL struct {
 	CreationDate string `json:"creation_date"`
 }
 
-// in memory database
-/*
- 123 --> {
-     ID:           "123",
-     OriginalURL:  "https://www.example.com",
-     ShortURL:     "123",
-     CreationDate: "time.now()",
-  }
-
-*/
+// In-memory database to store URLs
 var urldb = make(map[string]URL)
 
-func generateShortURL(OriginalUrl string) string {
-
+// Generate a short URL using MD5 hash (first 8 characters)
+func generateShortURL(originalURL string) string {
 	hasher := md5.New()
-	hasher.Write([]byte(OriginalUrl))
-	// fmt.Println("hasher: ", hasher)
-	data := hasher.Sum(nil)
-	// fmt.Println("hasher data: ", data)
-	hash := hex.EncodeToString(data)
-	fmt.Println("hasher data: ", data)
-	// fmt.Println("hash: ", hash)
-	fmt.Println("final hash: ", hash[:8])
+	hasher.Write([]byte(originalURL))
+	hash := hex.EncodeToString(hasher.Sum(nil))
 	return hash[:8]
-
 }
 
+// Create a new short URL and store it in the database
 func createURL(originalURL string) string {
-	shortURL := generateShortURL(originalURL)
+	shortID := generateShortURL(originalURL)
+	shortURL := "http://localhost:3000/redirect/" + shortID
 	url := URL{
-		ID:           shortURL,
+		ID:           shortID,
 		OriginalURL:  originalURL,
-		ShortURL:     "http://localhost:8080/" + shortURL,
-		CreationDate: "time.now()",
+		ShortURL:     shortURL,
+		CreationDate: time.Now().Format(time.RFC3339),
 	}
-	urldb[url.ID] = url
-	fmt.Println("URL created: ", url)
-	// fmt.Println("URL DB: ", urldb)
-	return url.ShortURL
+	urldb[shortID] = url
+	return shortURL
 }
 
-func getURL(id string) (URL, error) {
-	url, ok := urldb[id]
-	if !ok {
-		return URL{}, fmt.Errorf("URL not found with ID: %s", id)
+// Retrieve the original URL using the short ID
+func getURL(shortID string) (URL, error) {
+	url, exists := urldb[shortID]
+	if !exists {
+		return URL{}, fmt.Errorf("URL not found with ID: %s", shortID)
 	}
 	return url, nil
 }
 
-func redirectURL(w http.ResponseWriter, r *http.Request) {
-	var data struct {
+// Middleware to handle CORS for frontend integration
+func enableCORS(w http.ResponseWriter) {
+	w.Header().Set("Access-Control-Allow-Origin", "*")
+	w.Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS")
+	w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+}
+
+// Handler for shortening URLs
+func shortenURLHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprint(w,"Shorten url endpoint")
+	fmt.Fprintf(w, "URL Shortener API is running!")
+	if r.Method == http.MethodOptions {
+		enableCORS(w)
+		return
+	}
+	enableCORS(w)
+
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var requestData struct {
 		URL string `json:"url"`
 	}
 
-	err := json.NewDecoder(r.Body).Decode(&data)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	err := json.NewDecoder(r.Body).Decode(&requestData)
+	if err != nil || requestData.URL == "" {
+		http.Error(w, "Invalid JSON payload", http.StatusBadRequest)
 		return
 	}
-	shortURL := createURL(data.URL)
-	// fmt.Fprintf(w,shortURL)
 
-	response := struct {
-		ShortedURL string `json:"shortedURL"`
-	}{ShortedURL: shortURL}
+	// Ensure the URL has a valid format
+	originalURL := requestData.URL
+	if !strings.HasPrefix(originalURL, "http://") && !strings.HasPrefix(originalURL, "https://") {
+		http.Error(w, "URL must start with http:// or https://", http.StatusBadRequest)
+		return
+	}
+
+	shortURL := createURL(originalURL)
+
+	responseData := struct {
+		ShortURL string `json:"short_url"`
+	}{ShortURL: shortURL}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
-
+	json.NewEncoder(w).Encode(responseData)
 }
 
-func handler(w http.ResponseWriter, r *http.Request) {
-	fmt.Println("Get method")
-	fmt.Fprintf(w, "Hello from server")
-
-}
-
+// Handler for redirecting short URLs to original URLs
 func redirectURLHandler(w http.ResponseWriter, r *http.Request) {
-	id := r.URL.Path[len("/redirect/"):]
-	url, err := getURL(id)
+	shortID := strings.TrimPrefix(r.URL.Path, "/redirect/")
+	url, err := getURL(shortID)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusNotFound)
+		http.Error(w, "URL not found", http.StatusNotFound)
 		return
 	}
 
-	http.Redirect(w, r, url.OriginalURL, http.StatusSeeOther)
+	http.Redirect(w, r, url.OriginalURL, http.StatusFound)
 }
 
+// Root handler (for testing purposes)
+func rootHandler(w http.ResponseWriter, r *http.Request) {
+	enableCORS(w)
+	fmt.Fprintf(w, "URL Shortener API is running!")
+}
+
+// Main function to start the server
 func main() {
-	fmt.Println("Url shortener...")
-	generateShortURL("http://example.com/221212")
+	fmt.Println("Starting URL shortener server...")
 
-	// Register the handler function to handle all requests to the root URL ("/")
-
-	http.HandleFunc("/", handler)
-	http.HandleFunc("/shorten", redirectURL)
+	// http.HandleFunc("/", rootHandler)
+	http.HandleFunc("/shorten", shortenURLHandler)
 	http.HandleFunc("/redirect/", redirectURLHandler)
 
-	// Start the server on the default port 3000
-	err := http.ListenAndServe(":3000", nil)
+	port := ":3000"
+	fmt.Printf("Server is running on http://localhost%s\n", port)
+	err := http.ListenAndServe(port, nil)
 	if err != nil {
-		log.Fatal("ListenAndServe: ", err)
+		log.Fatalf("Failed to start server: %v", err)
 	}
-	fmt.Println("Server started on port 3000")
 }
