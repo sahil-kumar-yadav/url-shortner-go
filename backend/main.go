@@ -93,6 +93,18 @@ func handler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Hello from server")
 
 }
+
+func redirectURLHandler(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Path[len("/redirect/"):]
+	url, err := getURL(id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusNotFound)
+		return
+	}
+
+	http.Redirect(w, r, url.OriginalURL, http.StatusSeeOther)
+}
+
 func main() {
 	fmt.Println("Url shortener...")
 	generateShortURL("http://example.com/221212")
@@ -101,6 +113,7 @@ func main() {
 
 	http.HandleFunc("/", handler)
 	http.HandleFunc("/shorten", redirectURL)
+	http.HandleFunc("/redirect/", redirectURLHandler)
 
 	// Start the server on the default port 3000
 	err := http.ListenAndServe(":3000", nil)
