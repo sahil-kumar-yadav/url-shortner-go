@@ -3,7 +3,10 @@ package main
 import (
 	"crypto/md5"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"log"
+	"net/http"
 )
 
 // url shortner detailed struct
@@ -24,7 +27,7 @@ type URL struct {
   }
 
 */
-// var urldb = make(map[string]URL)
+var urldb = make(map[string]URL)
 
 func generateShortURL(OriginalUrl string) string {
 
@@ -40,7 +43,69 @@ func generateShortURL(OriginalUrl string) string {
 	return hash[:8]
 
 }
+
+func createURL(originalURL string) string {
+	shortURL := generateShortURL(originalURL)
+	url := URL{
+		ID:           shortURL,
+		OriginalURL:  originalURL,
+		ShortURL:     "http://localhost:8080/" + shortURL,
+		CreationDate: "time.now()",
+	}
+	urldb[url.ID] = url
+	fmt.Println("URL created: ", url)
+	// fmt.Println("URL DB: ", urldb)
+	return url.ShortURL
+}
+
+func getURL(id string) (URL, error) {
+	url, ok := urldb[id]
+	if !ok {
+		return URL{}, fmt.Errorf("URL not found with ID: %s", id)
+	}
+	return url, nil
+}
+
+func redirectURL(w http.ResponseWriter, r *http.Request) {
+	var data struct {
+		URL string `json:"url"`
+	}
+
+	err := json.NewDecoder(r.Body).Decode(&data)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	shortURL := createURL(data.URL)
+	// fmt.Fprintf(w,shortURL)
+
+	response := struct {
+		ShortedURL string `json:"shortedURL"`
+	}{ShortedURL: shortURL}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+
+}
+
+func handler(w http.ResponseWriter, r *http.Request) {
+	fmt.Println("Get method")
+	fmt.Fprintf(w, "Hello from server")
+
+}
 func main() {
 	fmt.Println("Url shortener...")
 	generateShortURL("http://example.com/221212")
+
+	// Register the handler function to handle all requests to the root URL ("/")
+
+	http.HandleFunc("/", handler)
+	http.HandleFunc("/shorten", redirectURL)
+
+	// Start the server on the default port 3000
+	err := http.ListenAndServe(":3000", nil)
+	if err != nil {
+		log.Fatal("ListenAndServe: ", err)
+	}
+	fmt.Println("Server started on port 3000")
 }
